@@ -11,16 +11,20 @@ sentence with a wrong checksum is ignored as a whole.
 
 | Sentence | Effect |
 | --- | --- |
-| `$POV,C,VU` | Volume up by 10 percent. Also unmutes, because a pilot asking for "louder" expects to hear something. |
-| `$POV,C,VD` | Volume down by 10 percent. Also unmutes. |
+| `$POV,C,VU` | Volume up to the next step of 10 percent (3 dB). Also unmutes, because a pilot asking for "louder" expects to hear something. |
+| `$POV,C,VD` | Volume down to the next step of 10 percent (3 dB). Also unmutes. |
 | `$POV,C,VM` | Toggle mute. |
 | `$POV,C,VOL,<percent>` | Set the volume to an absolute value between 0 and 100. Values outside that range are clamped, decimals are accepted, and a missing or non-numeric value is ignored rather than read as 0. The mute state is not changed, so a sender can restore its stored volume after a reconnect without cancelling a mute the pilot has chosen. |
 | `$POV,C,MUT,1` / `$POV,C,MUT,0` | Mute or unmute. Unlike `VM` the command describes the target state, so it can be repeated safely by a sender that does not know the current state. Any other value is ignored. |
 | `$POV,?,VOL` | variod answers with `$POV,C,VOL,<percent>`, the current volume rounded to whole percent. |
 | `$POV,?,MUT` | variod answers with `$POV,C,MUT,<0 or 1>`. |
 
-The percentage scales the amplitude of the tone linearly, exactly as the relative `VU`/`VD` steps
-always did. Versions of variod without these commands ignore `VOL` and `MUT` silently, so a flight
+The percentage is not a linear amplitude. The ear hears the level in decibels, so every 10 percent
+are 3 dB: 100 percent is full scale, 50 percent is 15 dB below it and 10 percent is 27 dB below it,
+while 0 is silent. This is the same curve OpenSoar uses for its own tone synthesiser, so the same
+percentage sounds the same on both. The default of 80 percent is 6 dB below full scale, which is the
+level the former linear default of 50 percent produced, so nothing gets quieter for a pilot who never
+changes the volume. Versions of variod without these commands ignore `VOL` and `MUT` silently, so a flight
 computer may send them unconditionally.
 
 Note that variod unmutes itself whenever the connection to the flight computer is (re)established;

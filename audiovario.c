@@ -8,14 +8,17 @@
 #include <math.h>
 #include <assert.h>
 
-#define DEFAULT_VOLUME 50.0
+// 80 percent are 6 dB below full scale (see volume_to_gain()), which is the
+// level the former linear default of 50 percent produced.  Keeping it means
+// the vario does not get quieter for anyone who never touches the volume.
+#define DEFAULT_VOLUME 80.0
 
 static int16_t buffer[BUFFER_SIZE];
 static float m4sr_ = 4.0/(float) RATE; // Pre-calculate 4 / sample_rate used for some future calculations
 //static int synth_ptr=0; // Not sure what this does, don't need
 static bool mute=true;
 static float volume=DEFAULT_VOLUME;
-static float int_volume=DEFAULT_VOLUME*327.67; // Pre-calculate volume
+static float int_volume=0; // Amplitude multiplier, set from DEFAULT_VOLUME by init_vario_config()
 static float phase_ptr=0.0;
 static float pulse_phase_ptr=0.0;
 
@@ -88,6 +91,10 @@ void init_vario_config() {
 	vario_config[stf].freq_gain_neg = STF_FREQ_GAIN_NEG;
 	vario_config[stf].loval = M_PI/(float) STF_PULSE_LENGTH;
 	vario_config[stf].hival = vario_config[stf].loval * 2.0 * STF_PULSE_LENGTH_GAIN;
+
+	// The amplitude now follows a curve (see volume_to_gain()) and can no
+	// longer be written as a constant initialiser.
+	set_volume(DEFAULT_VOLUME);
 }
 
 // Set the volume to an absolute value in percent of full scale.  Values
@@ -95,11 +102,33 @@ void init_vario_config() {
 // The mute state is deliberately left alone: volume and mute are two
 // independent settings, and a sender that restores its stored volume after a
 // reconnect must not silently cancel a mute the pilot has chosen.
+// Turn the volume in percent into an amplitude factor of 0..1.
+//
+// The ear hears the level in decibels, so a linear amplitude made 50 percent
+// sound almost as loud as 100 percent (only 6 dB less) and crowded all the
+// audible change into the lowest settings.  Every 10 percent are 3 dB
+// instead: 100 percent is full scale, 50 percent is 15 dB below it and
+// clearly softer, 10 percent is 27 dB below it, and 0 is silent.
+//
+// This is the same curve, including the quantisation to 1/1024 and the
+// smallest non-zero step, as ToneSynthesiser::VolumeToGain() in OpenSoar, so
+// that a volume in percent sent by OpenSoar sounds the same here as in its
+// own synthesiser.
+static float volume_to_gain(float percent) {
+	long gain;
+
+	if (percent<=0) return 0;
+	if (percent>=100) return 1;
+	gain=lround(1024*pow(10.0,-0.3*(100-percent)/20.0));
+	if (gain<1) gain=1;
+	return gain/1024.0f;
+}
+
 float set_volume(float percent) {
 	if (percent<0) percent=0;
 	if (percent>100) percent=100;
 	volume=percent;
-	int_volume=volume*327.67; // Pre-calculate actual multiplier
+	int_volume=32767.0f*volume_to_gain(volume); // Pre-calculate actual multiplier
 	vario_config[vario].pulse_riseiv=vario_config[vario].pulse_risei*int_volume; // Pre-calculate multiplier for 'rise' including volume
 	vario_config[vario].pulse_falliv=vario_config[vario].pulse_falli*int_volume; // Pre-calculate multiplier for 'fall' including volume
 	vario_config[stf].pulse_riseiv=vario_config[stf].pulse_risei*int_volume; // Pre-calculate multiplier for 'rise' including volume
@@ -107,12 +136,19 @@ float set_volume(float percent) {
 	return volume;
 }
 
-// Relative change as used by the VU/VD commands.  These keep their historic
+// Relative change as used by the VU/VD commands, in steps of 10 percent,
+// which are 3 dB each.  A volume between two steps (set with VOL) goes to the
+// next step in the requested direction, as OpenSoar's VarioVolume event does,
+// so both sides land on the same values.  These commands keep their historic
 // behaviour of unmuting, because a pilot pressing "louder" expects to hear
 // something.
 float change_volume(float delta) {
 	vario_unmute();
-	return set_volume(volume+delta);
+	if (delta>0)
+		return set_volume(floorf(volume/10.0f)*10.0f+10.0f);
+	else if (delta<0)
+		return set_volume(ceilf(volume/10.0f)*10.0f-10.0f);
+	return volume;
 }
 
 float get_volume(void) {

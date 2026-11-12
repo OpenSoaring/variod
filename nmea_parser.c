@@ -52,6 +52,20 @@ static void tx_mesg (char *client_message, int xcsoar_sock) {
 		fprintf(stderr, "send failed\n");
 }
 
+// Read a numeric command argument strictly.  atof() would turn a garbled or
+// missing value into 0, which for VOL means "silent" and for MUT "audible";
+// both are worse than ignoring the sentence.  The token still carries the
+// checksum when it is the last field ("50*1A"), so '*' ends the number too.
+static int read_arg(const char *tok, float *value) {
+	char *end;
+
+	if (tok==NULL) return 0;
+	*value=strtof(tok,&end);
+	if (end==tok) return 0;
+	if ((*end!=0) && (*end!='*') && (*end!='\r') && (*end!='\n')) return 0;
+	return 1;
+}
+
 void parse_NMEA_sensor(char* message, t_sensor_context* sensors, int xcsoar_sock)
 {
 	static char buffer[2001]; // A long buffer to hold multiple messages;
@@ -144,6 +158,7 @@ void parse_NMEA_command(char* message, int xcsoar_sock)
 	t_polar polar;
 	t_polar *ppolar;
 	static float fvals[NUM_FV];
+	float fval;
 
 	// Add new message to pre-existing buffer
 	if ((strlen(buffer)+strlen(message)>1998) || freshstart) {
@@ -184,6 +199,15 @@ void parse_NMEA_command(char* message, int xcsoar_sock)
 												setMC(atof(ptr2));
 												status&=(0x04^0xff);
 												debug_print("Get McCready Value: %f\n",atof(ptr2));
+											}
+										} else if ((*(ptr2+1) == 'U') && (*(ptr2+2) == 'T')) {
+											// Set mute state: 1 = muted, 0 = audible.  Unlike
+											// the VM toggle this is idempotent, so the sender
+											// can repeat it without knowing the current state.
+											ptr2 = strtok(NULL, del2);
+											if (read_arg(ptr2,&fval) && ((fval==0) || (fval==1))) {
+												if (fval==1) vario_mute(); else vario_unmute();
+												debug_print("Set Mute: %d\n",(int)fval);
 											}
 										}
 										break;
@@ -280,6 +304,18 @@ void parse_NMEA_command(char* message, int xcsoar_sock)
 												debug_print("Volume down\n");
 												change_volume(-10.0);
 												break;
+											case 'O' :
+												if (*(ptr2+2) == 'L') {
+													// Set absolute volume in percent (0..100).
+													// Lets the sender restore a stored level or
+													// drive a slider instead of counting VU/VD steps.
+													ptr2 = strtok(NULL, del2);
+													if (read_arg(ptr2,&fval)) {
+														set_volume(fval);
+														debug_print("Set Volume: %f\n",fval);
+													}
+												}
+												break;
 											case 'M' :
 												// Toggle Mute
 												debug_print("Toggle Mute\n");
@@ -321,6 +357,15 @@ void parse_NMEA_command(char* message, int xcsoar_sock)
 										case 'M' :
 											if (*(ptr2+1)=='C') {
 												sprintf (response,"$POV,C,MC,%f",getMC());
+												tx_mesg (response,xcsoar_sock);
+											} else if ((*(ptr2+1)=='U') && (*(ptr2+2)=='T')) {
+												sprintf (response,"$POV,C,MUT,%d",is_muted()?1:0);
+												tx_mesg (response,xcsoar_sock);
+											}
+											break;
+										case 'V' :
+											if ((*(ptr2+1)=='O') && (*(ptr2+2)=='L')) {
+												sprintf (response,"$POV,C,VOL,%.0f",get_volume());
 												tx_mesg (response,xcsoar_sock);
 											}
 											break;

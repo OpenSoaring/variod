@@ -1,6 +1,8 @@
 #ifndef AUDIOVARIO
 #define AUDIOVARIO
 
+#include <stdbool.h>
+
 #define FORMAT PA_SAMPLE_S16LE
 #define RATE 44100
 #define BUFFER_SIZE 8192
@@ -63,6 +65,9 @@ void toggle_mute(void);
 void vario_mute(void);
 void vario_unmute(void);
 float change_volume(float delta);
+float set_volume(float percent);
+float get_volume(void);
+bool is_muted(void);
 float triangle(float phase );
 void start_pcm(void);
 void init_vario_config(void);

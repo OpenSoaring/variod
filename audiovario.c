@@ -90,17 +90,37 @@ void init_vario_config() {
 	vario_config[stf].hival = vario_config[stf].loval * 2.0 * STF_PULSE_LENGTH_GAIN;
 }
 
-float change_volume(float delta) {
-	volume+=delta;
-	vario_unmute();
-	if (volume<0) volume=0;
-	if (volume>100) volume=100;
+// Set the volume to an absolute value in percent of full scale.  Values
+// outside 0..100 are clamped, so a sender never has to know the limits.
+// The mute state is deliberately left alone: volume and mute are two
+// independent settings, and a sender that restores its stored volume after a
+// reconnect must not silently cancel a mute the pilot has chosen.
+float set_volume(float percent) {
+	if (percent<0) percent=0;
+	if (percent>100) percent=100;
+	volume=percent;
 	int_volume=volume*327.67; // Pre-calculate actual multiplier
 	vario_config[vario].pulse_riseiv=vario_config[vario].pulse_risei*int_volume; // Pre-calculate multiplier for 'rise' including volume
 	vario_config[vario].pulse_falliv=vario_config[vario].pulse_falli*int_volume; // Pre-calculate multiplier for 'fall' including volume
 	vario_config[stf].pulse_riseiv=vario_config[stf].pulse_risei*int_volume; // Pre-calculate multiplier for 'rise' including volume
 	vario_config[stf].pulse_falliv=vario_config[stf].pulse_falli*int_volume; // Pre-calculate multiplier for 'fall' including volume
 	return volume;
+}
+
+// Relative change as used by the VU/VD commands.  These keep their historic
+// behaviour of unmuting, because a pilot pressing "louder" expects to hear
+// something.
+float change_volume(float delta) {
+	vario_unmute();
+	return set_volume(volume+delta);
+}
+
+float get_volume(void) {
+	return volume;
+}
+
+bool is_muted(void) {
+	return mute;
 }
 
 // Synthesize the "sink" (triangle) waveform.  Amplitude is 1, and for calculation simplicity, phase is in 100s of grads (0 to 4), making it a simple
